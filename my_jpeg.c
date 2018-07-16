@@ -70,5 +70,7 @@ int main(int argc, char**argv)
         return 1;
     }
 
+    fclose(jpg_data->fd);
+
     return 0;
 }
