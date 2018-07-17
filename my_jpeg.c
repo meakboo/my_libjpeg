@@ -20,14 +20,14 @@ u32 jpg_decompress_init( jpg_data_p  *jpg_data, char *file_name)
     *jpg_data = (jpg_data_p)malloc(sizeof(jpg_data_s));
     if (NULL ==  (*jpg_data))
     {
-        DEBUG("malloc failed\n");
+        ERRDEBUG("malloc failed\n");
         return RET_ERR;
     }
 
     (*jpg_data)->fd = fopen(file_name, "r");
     if ((*jpg_data)->fd == NULL)
     {
-        DEBUG("fopen failed\n");
+        ERRDEBUG("fopen failed\n");
         return RET_ERR;
     }
 
@@ -54,19 +54,19 @@ int main(int argc, char**argv)
     //判断输入参数
     if (2 != argc)
     {
-        DEBUG("usage :  ./a.out  test.jpg\n");
+        ERRDEBUG("usage :  ./a.out  test.jpg\n");
         return 1;
     }
     //初始化需要的资源
     if(RET_OK != jpg_decompress_init(&jpg_data, argv[1]))
     {
-        DEBUG("jpg decompress init failed\n");
+        ERRDEBUG("jpg decompress init failed\n");
         return 1;
     }
     //获取jpg文件头
     if(RET_OK != jpg_get_header(jpg_data))
     {
-        DEBUG("jpg get header failed\n");
+        ERRDEBUG("jpg get header failed\n");
         return 1;
     }
 
