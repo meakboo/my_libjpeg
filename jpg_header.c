@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "my_jpeg.h"
 #include "jpg_header.h"
@@ -150,7 +151,7 @@ void get_app0(jpg_data_p jpg_data, u8 *buff, u16 inter_len, u16 all_len)
         jpg_data->app0_E_info.density_unit = buff[7];
         jpg_data->app0_E_info.x_density = (buff[8] << 8) + buff[9];
         jpg_data->app0_E_info.y_density = (buff[10] << 8) + buff[11];
-        if (jpg_data->app0_E_info.jfif_major_version != 1 || jpg_data->app0_E_info.jfif_minor_version != 2)
+        if (jpg_data->app0_E_info.jfif_major_version != 1 && jpg_data->app0_E_info.jfif_major_version != 2)
         {
             WARDEBUG("Warning: unknown JFIF revision number  %d.%02d\n",\
                      jpg_data->app0_E_info.jfif_major_version,jpg_data->app0_E_info.jfif_minor_version);
@@ -307,7 +308,7 @@ void get_app0_or_14(jpg_data_p  jpg_data)
         get_app14(jpg_data, buff, read_len);
     }
     len -= read_len;
-
+    //后面可能还有缩略图数据,但是这些数据是无用的
     if (len > 0)
     {
         //跳过无用的数据
@@ -346,6 +347,8 @@ void get_dqt(jpg_data_p  jpg_data)
         c &= 0x0F;             //QT号
         len -= 1;
 
+        //ID为0,代表的是亮度;ID为代表的是色度
+
         //如果QT大于4,则报错退出
         if (c >= NUM_QUANT_TBLS)
         {
@@ -363,6 +366,8 @@ void get_dqt(jpg_data_p  jpg_data)
             }
         }
         dqt_info = jpg_data->dqt_info[c];
+        dqt_info->prec = prec;
+        dqt_info->dqt_id = c ;
 
         if (prec)
         {
@@ -439,18 +444,7 @@ void get_dqt(jpg_data_p  jpg_data)
         {
             len -= count;
         }
-#if 0
-        for (i = 1; i <= DCTSIZE2; i++)
-        {
-            printf("%02d     ", dqt_info->quantbal[i - 1]);
-            if (i >0   &&  i % 8 == 0)
-            {
-                printf("\n");
-            }
-        }
-        DEBUG("found dqt once !!\n");
-#endif
-
+        dqt_info->found_flag = TRUE;
     }
     if (len != 0)
     {
@@ -472,12 +466,16 @@ void get_dqt(jpg_data_p  jpg_data)
 修改日期:
 修改说明:新作
 *******************************************************************************/
-void get_sof(jpg_data_p  jpg_data)
+void get_sof(jpg_data_p  jpg_data, u8 is_baseline, u8 is_prog, u8 is_arith)
 {
     u16 len = 0;
     u8   c;
     u32 i, j;
     struct components_info_s  *components_info;
+
+    jpg_data->jpg_mode.is_baseline = is_baseline;
+    jpg_data->jpg_mode.progressive_mode = is_prog;
+    jpg_data->jpg_mode.arith_code = is_arith;
 
     get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
     len -= 2;
@@ -536,6 +534,7 @@ void get_sof(jpg_data_p  jpg_data)
             }
         }
         components_info->component_id = c;
+        components_info->component_index = j;
         get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
         components_info->h_samp_factor = (c >> 4) & 0xF;
         components_info->v_samp_factor = c  & 0xF;
@@ -602,6 +601,8 @@ void get_dri(jpg_data_p  jpg_data)
 void get_sos(jpg_data_p  jpg_data)
 {
     u16 len;
+    u8    n, c , i, j;
+    struct components_info_s  *components_info;
 
     if (jpg_data->sof_info.saw_sof_marker != TRUE)
     {
@@ -609,7 +610,61 @@ void get_sos(jpg_data_p  jpg_data)
         exit(1);
     }
     get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
+    get_byte(jpg_data,&n, sizeof(u8), DATA_TYPE);
 
+    if (len != (n * 2 + 6) || n > MAX_COMPS_IN_SCAN || (n == 0 && jpg_data->jpg_mode.progressive_mode != TRUE))
+    {
+        ERRDEBUG("Bogus marker length\n");
+        exit(1);
+    }
+
+    jpg_data->comps_in_scan = n;
+
+    for (i = 0; i < n; i++)
+    {
+        get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
+        for (j = 0; j < i; j++)
+        {
+            if (c == jpg_data->sos_info.cur_components_info[j]->component_id)
+            {
+                c =  jpg_data->sos_info.cur_components_info[0]->component_id;
+                for (j = 1; j < i; j++)
+                {
+                    components_info = jpg_data->sos_info.cur_components_info[j];
+                    if (components_info->component_id > c)
+                    {
+                        c = components_info->component_id;
+                    }
+                }
+                c++;
+                break;
+            }
+        }
+
+        for (j = 0, components_info = jpg_data->sof_info.components_info; j < jpg_data->num_components; j++, components_info++)
+        {
+            if (c == components_info->component_id)
+            {
+                goto id_found;
+            }
+        }
+
+        ERRDEBUG("Invalid component ID %d in SOS\n",c );
+
+id_found:
+        jpg_data->sos_info.cur_components_info[i] = components_info;
+       get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
+       components_info->dc_tbl_no = (c >> 4) & 0x0F;
+       components_info->ac_tbl_no = c & 0x0F;
+    }
+
+    get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
+    jpg_data->ss = c;
+    get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
+    jpg_data->se = c;
+    get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
+    jpg_data->ah = (c >> 4) & 0x0F;
+    jpg_data->al  = c & 0x0F;
 
     return;
 }
@@ -627,9 +682,92 @@ void get_sos(jpg_data_p  jpg_data)
 void get_dht(jpg_data_p  jpg_data)
 {
     u16 len = 0;
-    get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
+    u16 count = 0;
+    u8    index = 0;
+    u8    bits[16];
+    u8    huffval[256];
+    u32 i;
+    dht_info_p dht_info = NULL;
 
+    get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
     len -= 2;
+
+    while (len > 16)
+    {
+        get_byte(jpg_data, &index, sizeof(u8), DATA_TYPE);
+        count = 0;
+
+        memset(bits, 0, sizeof(bits));
+        memset(huffval, 0, sizeof(huffval));
+        for (i = 0; i < 16; i++)
+        {
+            get_byte(jpg_data, &(bits[i]), sizeof(u8), DATA_TYPE);
+            count += bits[i];
+        }
+        len -= 17;
+        //count必须小于256
+        if (count > 256 || count > len)
+        {
+            ERRDEBUG("Bogus Huffman table definition");
+            exit(1);
+        }
+        
+        for (i = 0; i < count; i++)
+        {
+            get_byte(jpg_data, &(huffval[i]), sizeof(u8), DATA_TYPE);
+        }
+
+        len -= count;
+        //霍夫曼表的需要只能是0~3
+        if ((index & 0x0F) < 0 || (index & 0x0F) > NUM_HUFF_TABLE)
+        {
+            ERRDEBUG("Bogus DHT index");
+            exit(1);
+        }
+
+        if (index & HUFF_AC_TABLE)
+        {
+            //为AC表
+            index -= HUFF_AC_TABLE;
+            if (jpg_data->dht_ac_info[index] == NULL)
+            {
+                jpg_data->dht_ac_info[index] = (struct dht_info_s * )malloc(sizeof(struct dht_info_s));
+                if (jpg_data->dht_ac_info[index] == NULL)
+                {
+                    ERRDEBUG("malloc failed\n");
+                    exit(1);
+                }
+            }
+            dht_info = jpg_data->dht_ac_info[index] ;
+        }
+        else
+        {
+            //为DC表
+            if (jpg_data->dht_dc_info[index] == NULL)
+            {
+                jpg_data->dht_dc_info[index] = (struct dht_info_s * )malloc(sizeof(struct dht_info_s));
+                if (jpg_data->dht_dc_info[index] == NULL)
+                {
+                    ERRDEBUG("malloc failed\n");
+                    exit(1);
+                }
+            }
+            dht_info = jpg_data->dht_dc_info[index] ;
+        }
+        dht_info->flag = TRUE;
+        memcpy(dht_info->bits, bits, sizeof(bits));
+        memcpy(dht_info->huffval, huffval, sizeof(huffval));
+
+
+        
+
+
+    }
+    if (len != 0)
+    {
+        ERRDEBUG("Bogus marker length\n");
+        exit(1);
+    }
 
     return;
 }
@@ -689,7 +827,19 @@ u32 jpg_get_header( jpg_data_p  jpg_data)
             get_dqt(jpg_data);
             break;
         case MARKER_SOF0:
-            get_sof(jpg_data);
+            get_sof(jpg_data, TRUE,FALSE,FALSE);
+            break;
+        case MARKER_SOF1:
+            get_sof(jpg_data,FALSE, FALSE, FALSE);
+            break;
+        case MARKER_SOF2:
+            get_sof(jpg_data,FALSE,TRUE,FALSE);
+            break;
+        case MARKER_SOF9:
+            get_sof(jpg_data,FALSE, FALSE,TRUE);
+            break;
+        case MARKER_SOF10:
+            get_sof(jpg_data,FALSE,TRUE,TRUE);
             break;
         case MARKER_DAC:
             get_dac(jpg_data);
@@ -700,16 +850,22 @@ u32 jpg_get_header( jpg_data_p  jpg_data)
         case MARKER_DRI:
             get_dri(jpg_data);
             break;
+        case MARKER_COM:
+            break;
         case MARKER_EOI:
-            DEBUG("hello world\n");
-            return RET_OK;
+            break;
+        case HEADER_FIND_SOI:
             break;
         case MARKER_SOS:
             get_sos(jpg_data);
+            return RET_OK;
+            break;
+        default:
+            ERRDEBUG("The marker can not be supported .   0x%x\n", jpg_data->status);
+            exit(1);
             break;
         }
     }
-
 
     return RET_OK;
 }

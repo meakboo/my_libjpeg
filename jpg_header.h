@@ -65,6 +65,13 @@
 #define DATA_TYPE                       0
 #define NO_DATA_TYPE                    1
 
+//霍夫曼表类型
+#define HUFF_AC_TABLE                    0x10                           //第4位为1,则是AC交流量;否则为DC,直流量
+#define HUFF_DC_TABLE                    0x00
+
+//扫描行组件最大数量
+#define MAX_COMPS_IN_SCAN        4
+
 extern u32 jpg_get_header( jpg_data_p  jpg_data);
 
 #endif //__JPG_HEADER_H_
