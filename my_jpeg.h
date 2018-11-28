@@ -4,7 +4,7 @@
 #define DEBUG_ON
 
 #ifndef DEBUG_ON
-#define EERDEBUG(...)
+#define ERRDEBUG(...)
 #define DEBUG(...)
 #define WARDEBUG(...)
 #else
@@ -17,7 +17,36 @@
 #define RET_ERR             1
 
 #define TRUE                    0xAA
-#define FALSE                  0xBB
+#define FALSE                   0xBB
+
+//JPEG hw argrument
+#define JPEG_SOC_ADDR			0x400000000
+#define JPEG_SOC_LEN			0x4000000
+#define JPEG_SOC_OFFSET			0x800
+//JPEG CFG
+#define JPEG_SOC
+//JPEG sf argrument
+#define JPEG_RESERV_MEM			0x60000000		//1500M
+#define JPEG_IMAGE_MMAP_LEN		0x600000
+//JPEG CFG 
+#define JPEG_RESET_ALL			(1 << 0)
+#define JPEG_NORMAL_MODE		(1 <<21)
+#define JPEG_START				(1 << 0)
+//JPEG STATUS
+#define JPEG_DECODE_DONE		(1 << 8)
+//DHT OFFSET
+#define DHT1_OFFSET				(0)
+#define DHT2_OFFSET				(DHT1_OFFSET + 16)
+#define DHT3_OFFSET				(DHT2_OFFSET + 256)
+#define DHT4_OFFSET				(DHT3_OFFSET + 16)
+//DQT OFFSET
+#define DQT_OFFSET				0x400
+//HUFFMAN TABLE
+#define HUFFMAN_TABLE_OFFSET	0xC00
+//READ LEN MAX
+#define JPEG_READ_MAX_LEN		0xA00000
+
+
 
 typedef unsigned   int       u32;
 typedef            int       s32;
@@ -46,13 +75,12 @@ struct app0_E_info_s{
 //定义量化表的信息结构体
 struct dqt_info_s{
     u16 quantbal[DCTSIZE2];
+    u8 table_dqt[DCTSIZE2];
     u8 prec;
     u8 dqt_id;
     u16 found_flag;
 };
 typedef struct dqt_info_s * dqt_info_p;
-
-
 
 //SOF 以及SOS组件信息结构体
 struct components_info_s
@@ -88,6 +116,8 @@ struct dht_info_s
     u8 bits[16];
     u8 huffval[256];
     u32 flag;
+	u16 table_ht[16];
+	u8 table_hn[16];
 };
 typedef struct dht_info_s * dht_info_p;
 //霍夫曼表个数
@@ -102,24 +132,54 @@ struct jpg_mode_s
     u8 arith_code;
 };
 
+//JPEG FPGA 寄存器
+struct jpeg_soc_reg{
+	u32 jpeg_status;
+	u32 jpeg_cfg;
+	u32 jpeg_high_width;
+	u32 jpeg_rd_addr_low;
+	u32 jpeg_rd_addr_high;
+	u32 jpeg_wr_addr_low;
+	u32 jpeg_wr_addr_high;
+	u32 jpeg_run;
+};
+
+
 //JPG总体信息结构体
 typedef struct jpg_data_t
 {
     FILE   *fd;
+	struct jpeg_soc_reg *reg;
+	void *dht1_addr;
+	void *dht2_addr;
+	void *dht3_addr;
+	void *dht4_addr;
+	void *dqt_addr;
+	void *huffmantable_addr;
+	void *jpg_input_addr;
+	void *jpg_output_addr;
+	void *data_buff;
+	void *rgb_buff;
+	s32		mem_fd;
     u32    status;
+    u32		file_size;
     struct app0_E_info_s app0_E_info;
     struct sof_info_s sof_info;
     struct sos_info_s sos_info;
     struct jpg_mode_s jpg_mode;  
     dqt_info_p dqt_info[NUM_QUANT_TBLS];                           //量化表信息,序号0~3
+	//AC表格 ，第一个是0x01,第二个是0x03
     dht_info_p dht_ac_info[NUM_HUFF_TABLE];                     //霍夫曼交流表,序号0~3
-    dht_info_p dht_dc_info[NUM_HUFF_TABLE];                     //霍夫曼直流表,序号0~3
-
+    //DC表格，第一个是0x00,第二个是0x02 。所以，对应的就是DC1,AC1,DC2,AC2
+    dht_info_p dht_dc_info[NUM_HUFF_TABLE];                     //霍夫曼直流表,序号0~3	
     u8      data_precision;                          //样本精度
     u8      num_components;                   //组件个数
     u8      comps_in_scan;                         //扫描行内组件个数
     u16    width;                                           //图像的宽
     u16    height;                                         //图像的高
+    u16		width_block;								//图像横向块数
+	u16		height_block;							//图像纵向块数
+	u32		read_len;								//解码成功后需要读取的长度
     u16    restart_interval;                       //重新开始间隔
 
     //progressive JPEG parameters for scan 
@@ -127,14 +187,9 @@ typedef struct jpg_data_t
     u8 se;
     u8 ah;
     u8 al;
-
-
-
-
 }jpg_data_s;
 
 typedef  jpg_data_s * jpg_data_p;
-
 
 
 

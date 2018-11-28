@@ -425,6 +425,8 @@ void get_dqt(jpg_data_p  jpg_data)
             break;
         }
 
+		DEBUG("count = %d\n", count);
+
         for (i = 0; i < count; i++)
         {
             if (prec)
@@ -435,6 +437,7 @@ void get_dqt(jpg_data_p  jpg_data)
             else
             {
                 get_byte(jpg_data, &tmp_8, sizeof(u8), DATA_TYPE);
+				dqt_info->table_dqt[i] = tmp_8;
                 dqt_info->quantbal[natural_order[i]] = tmp_8;
             }
         }
@@ -686,7 +689,10 @@ void get_dht(jpg_data_p  jpg_data)
     u8    index = 0;
     u8    bits[16];
     u8    huffval[256];
+	u16 huffmandata = 0;
+	u16 shiftdata = 0x8000;
     u32 i;
+	u8 tmp = 0;
     dht_info_p dht_info = NULL;
 
     get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
@@ -699,33 +705,8 @@ void get_dht(jpg_data_p  jpg_data)
 
         memset(bits, 0, sizeof(bits));
         memset(huffval, 0, sizeof(huffval));
-        for (i = 0; i < 16; i++)
-        {
-            get_byte(jpg_data, &(bits[i]), sizeof(u8), DATA_TYPE);
-            count += bits[i];
-        }
-        len -= 17;
-        //count必须小于256
-        if (count > 256 || count > len)
-        {
-            ERRDEBUG("Bogus Huffman table definition");
-            exit(1);
-        }
-        
-        for (i = 0; i < count; i++)
-        {
-            get_byte(jpg_data, &(huffval[i]), sizeof(u8), DATA_TYPE);
-        }
 
-        len -= count;
-        //霍夫曼表的需要只能是0~3
-        if ((index & 0x0F) < 0 || (index & 0x0F) > NUM_HUFF_TABLE)
-        {
-            ERRDEBUG("Bogus DHT index");
-            exit(1);
-        }
-
-        if (index & HUFF_AC_TABLE)
+		if (index & HUFF_AC_TABLE)
         {
             //为AC表
             index -= HUFF_AC_TABLE;
@@ -754,13 +735,46 @@ void get_dht(jpg_data_p  jpg_data)
             }
             dht_info = jpg_data->dht_dc_info[index] ;
         }
+     
+        for (i = 0; i < 16; i++)
+        {
+            get_byte(jpg_data, &(bits[i]), sizeof(u8), DATA_TYPE);
+            tmp = bits[i];
+			dht_info->table_ht[i] = huffmandata;
+			dht_info->table_hn[i] = count;
+			
+            count += bits[i];
+			while(!(tmp == 0))
+			{
+				huffmandata += shiftdata;
+				tmp--;
+			}
+			shiftdata = shiftdata >> 1;
+        }
+        len -= 17;
+        //count必须小于256
+        if (count > 256 || count > len)
+        {
+            ERRDEBUG("Bogus Huffman table definition");
+            exit(1);
+        }
+        
+        for (i = 0; i < count; i++)
+        {
+            get_byte(jpg_data, &(huffval[i]), sizeof(u8), DATA_TYPE);
+        }
+        len -= count;
+        //霍夫曼表的需要只能是0~3
+        if ((index & 0x0F) < 0 || (index & 0x0F) > NUM_HUFF_TABLE)
+        {
+            ERRDEBUG("Bogus DHT index");
+            exit(1);
+        }
+
+        
         dht_info->flag = TRUE;
         memcpy(dht_info->bits, bits, sizeof(bits));
         memcpy(dht_info->huffval, huffval, sizeof(huffval));
-
-
-        
-
 
     }
     if (len != 0)
