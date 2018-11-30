@@ -46,7 +46,7 @@
 //READ LEN MAX
 #define JPEG_READ_MAX_LEN		0xA00000
 
-
+//#define USE_MY_MEMCPY
 
 typedef unsigned   int       u32;
 typedef            int       s32;

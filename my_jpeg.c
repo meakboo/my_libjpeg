@@ -28,11 +28,13 @@ void jpg_hw_res(jpg_data_p jpg_data)
 
 	jpg_data->reg->jpeg_cfg |= 1 << 1;
 	jpg_data->reg->jpeg_cfg |= 1 << 2;
-
+	jpg_data->reg->jpeg_cfg |= 1 << 3;
+	
 	sleep(1);
 
 	jpg_data->reg->jpeg_cfg &= ~(1 << 1);
 	jpg_data->reg->jpeg_cfg &= ~(1 << 2);
+	jpg_data->reg->jpeg_cfg &= ~(1 << 3);
 
 	return;
 }
@@ -48,11 +50,10 @@ void jpg_hw_res(jpg_data_p jpg_data)
 修改日期:
 修改说明:新作
 *******************************************************************************/
-jpg_data_p jpg_decompress_init( char *file_name)
+jpg_data_p jpg_decompress_init( void)
 {
 	void *temp = NULL;
 	jpg_data_p jpg_data = NULL;
-    struct stat statbuf;
     
     jpg_data = (jpg_data_p)malloc(sizeof(jpg_data_s));
     if (!jpg_data)
@@ -74,16 +75,7 @@ jpg_data_p jpg_decompress_init( char *file_name)
         ERRDEBUG("malloc failed\n");
         return NULL;		
 	}
-	//获取文件大小
-	stat(file_name, &statbuf);
-	jpg_data->file_size = statbuf.st_size;
-	
-    jpg_data->fd = fopen(file_name, "r");
-    if (jpg_data->fd == NULL)
-    {
-        ERRDEBUG("fopen failed\n");
-        return NULL;
-    }
+
 #ifdef JPEG_SOC
 	jpg_data->mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
 	if(jpg_data->mem_fd < 0)
@@ -98,6 +90,7 @@ jpg_data_p jpg_decompress_init( char *file_name)
 		ERRDEBUG("mmap failed\n");
 		return NULL;
 	}
+	
 	//确定各个物理内存地址
 	jpg_data->dht1_addr = temp + DHT1_OFFSET;
 	jpg_data->dht2_addr = temp + DHT2_OFFSET;
@@ -106,7 +99,9 @@ jpg_data_p jpg_decompress_init( char *file_name)
 	jpg_data->dqt_addr = temp + DQT_OFFSET;
 	jpg_data->reg = temp + JPEG_SOC_OFFSET;
 	jpg_data->huffmantable_addr = temp + HUFFMAN_TABLE_OFFSET;
-	
+
+	printf("%p  %p  %p\n", temp, jpg_data->dht1_addr , jpg_data->reg );
+
 	jpg_data->jpg_input_addr = mmap(NULL, JPEG_IMAGE_MMAP_LEN,  PROT_READ | PROT_WRITE ,\
 						MAP_SHARED,  jpg_data->mem_fd, JPEG_RESERV_MEM);
 	if((jpg_data->jpg_input_addr) == NULL)
@@ -126,6 +121,35 @@ jpg_data_p jpg_decompress_init( char *file_name)
     jpg_data->status = HEADER_START;
 
     return jpg_data;
+}
+
+/*******************************************************************************
+功能描述: 打开jpg文件
+输入参数: jpg_data_p  jpg_data : jpg结构体
+		char *file_name : 文件名字
+输出参数: 无
+返回值域:无
+-----------------------------------------------------
+修改作者: 任栋
+修改日期:
+修改说明:新作
+*******************************************************************************/
+void jpg_open_file(jpg_data_p jpg_data, char *file_name)
+{
+	struct stat statbuf;
+
+	//获取文件大小
+	stat(file_name, &statbuf);
+	jpg_data->file_size = statbuf.st_size;
+	
+    jpg_data->fd = fopen(file_name, "r");
+    if (jpg_data->fd == NULL)
+    {
+        ERRDEBUG("fopen failed\n");
+        return;
+    }
+    
+	return;
 }
 
 /*******************************************************************************
@@ -345,18 +369,25 @@ void jpg_get_file(jpg_data_p jpg_data)
 *******************************************************************************/
 void jpg_fpga_cfg(jpg_data_p jpg_data)
 {
+	u32 tmp = 0;
+
+	tmp = (jpg_data->file_size % 128)?((jpg_data->file_size /128 + 1) * 128):jpg_data->file_size;
+	tmp -= 16;
+
+	printf("tmp = %d\n", tmp);
+
 	//获取需要读的长度
 	jpg_data->width_block = (jpg_data->width % 16)?(jpg_data->width /16 + 1):(jpg_data->width /16);
 	jpg_data->height_block = (jpg_data->height % 16)?(jpg_data->height /16 + 1):(jpg_data->height /16);
 	jpg_data->read_len = jpg_data->width_block * jpg_data->height_block * 256 * 4;
 	
 	//reset FPGA
-	jpg_hw_res(jpg_data);
+	//jpg_hw_res(jpg_data);
 	//设置宽高寄存器
 	jpg_data->reg->jpeg_high_width = ((jpg_data->height << 16) | jpg_data->width);
 	//设置FPGA读地址
 	jpg_data->reg->jpeg_rd_addr_low = JPEG_RESERV_MEM;
-	jpg_data->reg->jpeg_rd_addr_high = JPEG_RESERV_MEM + jpg_data->file_size;
+	jpg_data->reg->jpeg_rd_addr_high = JPEG_RESERV_MEM + tmp;
 	//设置FPGA写地址
 	jpg_data->reg->jpeg_wr_addr_low = JPEG_RESERV_MEM + JPEG_IMAGE_MMAP_LEN;
 	jpg_data->reg->jpeg_wr_addr_high = JPEG_RESERV_MEM + JPEG_IMAGE_MMAP_LEN + jpg_data->read_len;
@@ -384,6 +415,12 @@ void jpg_wait_done(jpg_data_p jpg_data)
 
 	while(!done)
 		done = jpg_data->reg->jpeg_status & JPEG_DECODE_DONE;
+		
+	DEBUG("jpg decode done\n");
+
+	jpg_data->reg->jpeg_cfg |= (1 << 3);
+	sleep(1);
+	jpg_data->reg->jpeg_cfg &= ~(1 << 3);
 
 	return;
 }
@@ -462,6 +499,51 @@ void jpg_table_printf_s(u16 *data, u32 len, u8 *name)
 	return;
 }
 
+void jpg_debug_hwmem(void *addr, u32 count, u8 size, u8 *name)
+{
+	void *tmp = NULL;
+	FILE *fd = NULL;
+	u32 i = 0;
+	
+	tmp = malloc(0x100000);
+	if(!tmp)
+	{
+		printf("malloc err\n");
+		return;
+	}
+	fd = fopen(name, "a+");
+	if(!fd)
+	{
+		printf("fopen err\n");
+		free(tmp);
+		return;
+	}
+
+	memcpy(tmp, addr, size * count);
+	if(size == 1)
+	{
+		for(i = 0; i < count; i++)
+			fprintf(fd, "%x\n", *((u8 *)tmp + i));
+	}
+	else if(size == 2)
+	{
+		for(i = 0; i < count; i++)
+			fprintf(fd, "%x\n", *((u16 *)tmp + i));		
+	}
+	else if(size == 4)
+	{
+		for(i = 0; i < count; i++)
+			fprintf(fd, "%x\n", *((u32 *)tmp + i));		
+	}	
+	
+	fclose(fd);
+	fd = NULL;
+	free(tmp);
+	tmp = NULL;
+	return;
+}
+
+
 /*******************************************************************************
 功能描述: 向指定地址配置jpg头数据
 输入参数: jpg_data_p jpg_data : jpeg数据结构体
@@ -481,30 +563,19 @@ void jpg_set_header_data(jpg_data_p jpg_data)
 	//配置DHT1, 对应的是DC表1
 	memcpy(jpg_data->dht1_addr, jpg_data->dht_dc_info[0]->huffval, 16);
 	DEBUG("printf DHT1\n");
-#if 0
-	for(i = 0; i < 10; i++)
-	{
-		printf("%x \n", *((u8 *)jpg_data->dht_dc_info[0]->huffval + i));
-	}
-	printf("hw\n");
-	for(i = 0; i < 10; i++)
-	{
-		printf("%x \n", *((u8 *)jpg_data->dht1_addr + i));
-	}
-#endif
-	jpg_table_printf_c(jpg_data->dht_dc_info[0]->huffval, 16, "dht1.txt");
+	//jpg_table_printf_c(jpg_data->dht_dc_info[0]->huffval, 16, "dht1.txt");
 	//配置DHT2，对应的是AC表1
 	memcpy(jpg_data->dht2_addr, jpg_data->dht_ac_info[0]->huffval, 256);
 	DEBUG("printf DHT2\n");
-	jpg_table_printf_c(jpg_data->dht_ac_info[0]->huffval, 256, "dht2.txt");
+	//jpg_table_printf_c(jpg_data->dht_ac_info[0]->huffval, 256, "dht2.txt");
 	//配置DHT3，对应的是DC表2
 	memcpy(jpg_data->dht3_addr, jpg_data->dht_dc_info[1]->huffval, 16);
 	DEBUG("printf DHT1\n");
-	jpg_table_printf_c(jpg_data->dht_dc_info[1]->huffval, 16, "dht3.txt");
+	//jpg_table_printf_c(jpg_data->dht_dc_info[1]->huffval, 16, "dht3.txt");
 	//配置DHT4，对应的是AC表2
 	memcpy(jpg_data->dht4_addr, jpg_data->dht_ac_info[1]->huffval, 256);
 	DEBUG("printf DHT2\n");
-	jpg_table_printf_c(jpg_data->dht_ac_info[1]->huffval, 256, "dht4.txt");
+	//jpg_table_printf_c(jpg_data->dht_ac_info[1]->huffval, 256, "dht4.txt");
 	//配置DQT
 	for(i = 0; i < NUM_QUANT_TBLS; i++)
 	{
@@ -512,7 +583,7 @@ void jpg_set_header_data(jpg_data_p jpg_data)
 		{
 			DEBUG("printf DQT%d\n", i);
 			memcpy(jpg_data->dqt_addr + (j * 64), jpg_data->dqt_info[i]->table_dqt, 64);
-			jpg_table_printf_c(jpg_data->dqt_info[i]->table_dqt, 64, "dqt.txt");
+			//jpg_table_printf_c(jpg_data->dqt_info[i]->table_dqt, 64, "dqt.txt");
 			j++;
 		}
 	}
@@ -531,7 +602,7 @@ void jpg_set_header_data(jpg_data_p jpg_data)
 		huffman_table[i + j * 16] = (jpg_data->dht_ac_info[1]->table_hn[i] << 16) | (jpg_data->dht_ac_info[1]->table_ht[i]);
 
 	memcpy(jpg_data->huffmantable_addr, huffman_table, sizeof(huffman_table));
-
+#if 0
 	jpg_table_printf_s(jpg_data->dht_dc_info[0]->table_ht, 16, "ht_t.txt");
 	jpg_table_printf_s(jpg_data->dht_ac_info[0]->table_ht, 16, "ht_t.txt");
 	jpg_table_printf_s(jpg_data->dht_dc_info[1]->table_ht, 16, "ht_t.txt");
@@ -541,7 +612,13 @@ void jpg_set_header_data(jpg_data_p jpg_data)
 	jpg_table_printf_c(jpg_data->dht_ac_info[0]->table_hn, 16, "hn_t.txt");
 	jpg_table_printf_c(jpg_data->dht_dc_info[1]->table_hn, 16, "hn_t.txt");
 	jpg_table_printf_c(jpg_data->dht_ac_info[1]->table_hn, 16, "hn_t.txt");
-	
+#endif	
+	jpg_debug_hwmem(jpg_data->dht1_addr, 16, 1, "dht1.txt");
+	jpg_debug_hwmem(jpg_data->dht2_addr, 256, 1, "dht2.txt");
+	jpg_debug_hwmem(jpg_data->dht3_addr, 16, 1, "dht3.txt");
+	jpg_debug_hwmem(jpg_data->dht4_addr, 256, 1, "dht4.txt");
+	jpg_debug_hwmem(jpg_data->dqt_addr, 128, 1, "dqt.txt");
+	jpg_debug_hwmem(jpg_data->huffmantable_addr, 64, 4, "hn_ht.txt");
 	
 	return;
 }
@@ -636,21 +713,30 @@ void jpg_read_xrgb(jpg_data_p jpg_data)
 
 	//先从OUT buff把所有要拷贝的数据都拷贝出来，里面有大量的无用数据需要删减
 	memcpy(jpg_data->data_buff, jpg_data->jpg_output_addr, jpg_data->read_len);
-	//需要去除边界
-	if(((jpg_data->height_block << 4) != jpg_data->height) || ((jpg_data->width_block << 4) != jpg_data->width))
+
+	FILE *fd = fopen("src_data", "wb+");
+	if(!fd)
 	{
-		for(i = 0; i < jpg_data->height; i++)
-		{
+		printf("src_data fopen\n");
+		return;
+	}
+
+	fwrite(jpg_data->data_buff, jpg_data->read_len, 1, fd);
+	fclose(fd);
+
+	
+	//需要去除边界
+	for(i = 0; i < jpg_data->height; i++)
+	{
 #ifndef USE_MY_MEMCPY
-			memcpy(jpg_data->rgb_buff + cur_dst, jpg_data->data_buff + cur_src, jpg_data->width << 2);
-			cur_dst += jpg_data->width << 2;
+		memcpy(jpg_data->rgb_buff + cur_dst, jpg_data->data_buff + cur_src, jpg_data->width *4);
+		cur_dst += jpg_data->width << 2;
 #else
-			jpg_my_memcpy(jpg_data->rgb_buff + cur_dst, jpg_data->data_buff + cur_src, jpg_data->width << 2);
-			cur_dst += jpg_data->width * 3;
+		jpg_my_memcpy(jpg_data->rgb_buff + cur_dst, jpg_data->data_buff + cur_src, jpg_data->width * 4);
+		cur_dst += jpg_data->width * 3;
 #endif
-			//相当于向后便宜width_block * 16 * 4个字节
-			cur_src += (jpg_data->width_block << 6);	
-		}
+		//相当于向后便宜width_block * 16 * 4个字节
+		cur_src += jpg_data->width_block * 64;	
 	}
 	
 	return;
@@ -672,24 +758,20 @@ void jpg_soc_decode(jpg_data_p jpg_data)
 
 	//获取图片长度以及图片数据
 	jpg_get_file(jpg_data);
-#if 0
-	DEBUG("status = 0x%x\n", jpg_data->reg->jpeg_status);
-	DEBUG("low addr = 0x%x\n", jpg_data->reg->jpeg_rd_addr_low);
-	DEBUG("cfg = %p\n", jpg_data->reg->jpeg_cfg);
-	DEBUG("in  addr = %p\n", jpg_data->jpg_input_addr);
-	DEBUG("out addr = %p\n", jpg_data->jpg_output_addr);
-#endif
+
 	//配置DHT、DQT、Huffman Table数据到指定物理内存
 	jpg_set_header_data(jpg_data);
+
 	//FPGA寄存器配置
 	jpg_fpga_cfg(jpg_data);
 	//等待解码完成
+#if 1
 	jpg_wait_done(jpg_data);
 	//获取解码成功的图片
 	jpg_read_xrgb(jpg_data);
 	//保存解码后的图像
 	jpg_save_image(jpg_data);
-	
+#endif	
 	DEBUG("decode done\n");
 
 	return;
@@ -718,20 +800,21 @@ int main(int argc, char**argv)
     }
 
     //初始化需要的资源
-    if((jpg_data= jpg_decompress_init(argv[1])) == NULL)
+    if((jpg_data= jpg_decompress_init()) == NULL)
     {
         ERRDEBUG("jpg decompress init failed\n");
         return 1;
     }
-
+	//打开jpg文件
+	jpg_open_file(jpg_data, argv[1]);
     //获取jpg文件头
     if(RET_OK != jpg_get_header(jpg_data))
     {
         ERRDEBUG("jpg get header failed\n");
         return 1;
     }
-#if 0
-    jpg_debug(jpg_data, argv[1]);
+#if 1
+    //jpg_debug(jpg_data, argv[1]);
 	DEBUG("high = %d width = %d\n", jpg_data->height, jpg_data->width);
 #endif
 	//与FPGA交互

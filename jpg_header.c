@@ -655,7 +655,7 @@ void get_sos(jpg_data_p  jpg_data)
         ERRDEBUG("Invalid component ID %d in SOS\n",c );
 
 id_found:
-        jpg_data->sos_info.cur_components_info[i] = components_info;
+       jpg_data->sos_info.cur_components_info[i] = components_info;
        get_byte(jpg_data, &c, sizeof(u8), DATA_TYPE);
        components_info->dc_tbl_no = (c >> 4) & 0x0F;
        components_info->ac_tbl_no = c & 0x0F;
@@ -735,6 +735,8 @@ void get_dht(jpg_data_p  jpg_data)
             }
             dht_info = jpg_data->dht_dc_info[index] ;
         }
+		memset(dht_info->table_ht, 0, sizeof(dht_info->table_ht));
+		memset(dht_info->table_hn, 0, sizeof(dht_info->table_hn));
      
         for (i = 0; i < 16; i++)
         {
