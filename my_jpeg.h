@@ -23,13 +23,17 @@
 #define JPEG_SOC_ADDR			0x400000000
 #define JPEG_SOC_LEN			0x4000000
 #define JPEG_SOC_OFFSET			0x800
+#define JPEG_NAME_MAX_LEN		64
 //JPEG CFG
 #define JPEG_SOC
 //JPEG sf argrument
 #define JPEG_RESERV_MEM			0x60000000		//1500M
-#define JPEG_IMAGE_MMAP_LEN		0x600000
+#define JPEG_IMAGE_MMAP_LEN		0x4000000
 //JPEG CFG 
 #define JPEG_RESET_ALL			(1 << 0)
+#define JPEG_CLR_INPUT_FIFO		(1 << 1)
+#define JPEG_CLR_OUTPUT_FIFO	(1 << 2)
+#define JPEG_CLR_DONE			(1 << 3)
 #define JPEG_NORMAL_MODE		(1 <<21)
 #define JPEG_START				(1 << 0)
 //JPEG STATUS
@@ -46,7 +50,7 @@
 //READ LEN MAX
 #define JPEG_READ_MAX_LEN		0xA00000
 
-//#define USE_MY_MEMCPY
+#define USE_MY_MEMCPY
 
 typedef unsigned   int       u32;
 typedef            int       s32;
@@ -69,7 +73,7 @@ struct app0_E_info_s{
 
 
 //定义量化表DQT序号为0~3
-#define NUM_QUANT_TBLS             4
+#define NUM_QUANT_TBLS             				 4
 //每个DQT表为64个元素,128个字节
 #define DCTSIZE2                                 64
 //定义量化表的信息结构体
@@ -160,6 +164,7 @@ typedef struct jpg_data_t
 	void *jpg_output_addr;
 	void *data_buff;
 	void *rgb_buff;
+	void *gpio_mem;
 	s32		mem_fd;
     u32    status;
     u32		file_size;
@@ -181,7 +186,7 @@ typedef struct jpg_data_t
 	u16		height_block;							//图像纵向块数
 	u32		read_len;								//解码成功后需要读取的长度
     u16    restart_interval;                       //重新开始间隔
-
+	u8 jpg_name[JPEG_NAME_MAX_LEN];
     //progressive JPEG parameters for scan 
     u8 ss;
     u8 se;

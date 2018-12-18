@@ -95,7 +95,7 @@ void get_soi( jpg_data_p  jpg_data)
 修改日期:
 修改说明:新作
 *******************************************************************************/
-void get_next(jpg_data_p  jpg_data)
+void get_next(jpg_data_p jpg_data)
 {
     u8  field_first = 0;
     u32 fill_num = 0;
@@ -427,6 +427,8 @@ void get_dqt(jpg_data_p  jpg_data)
 
 		DEBUG("count = %d\n", count);
 
+		memset(dqt_info->table_dqt, 0, sizeof(dqt_info->table_dqt));
+		
         for (i = 0; i < count; i++)
         {
             if (prec)
@@ -576,7 +578,7 @@ void get_dac(jpg_data_p  jpg_data)
 修改日期:
 修改说明:新作
 *******************************************************************************/
-void get_dri(jpg_data_p  jpg_data)
+void get_dri(jpg_data_p jpg_data)
 {
     u16 len = 0;
     get_byte(jpg_data, (u8 *)(&len), sizeof(u16), DATA_TYPE);
@@ -601,7 +603,7 @@ void get_dri(jpg_data_p  jpg_data)
 修改日期:
 修改说明:新作
 *******************************************************************************/
-void get_sos(jpg_data_p  jpg_data)
+void get_sos(jpg_data_p jpg_data)
 {
     u16 len;
     u8    n, c , i, j;
@@ -630,7 +632,7 @@ void get_sos(jpg_data_p  jpg_data)
         {
             if (c == jpg_data->sos_info.cur_components_info[j]->component_id)
             {
-                c =  jpg_data->sos_info.cur_components_info[0]->component_id;
+                c = jpg_data->sos_info.cur_components_info[0]->component_id;
                 for (j = 1; j < i; j++)
                 {
                     components_info = jpg_data->sos_info.cur_components_info[j];
@@ -682,7 +684,7 @@ id_found:
 修改日期:
 修改说明:新作
 *******************************************************************************/
-void get_dht(jpg_data_p  jpg_data)
+void get_dht(jpg_data_p jpg_data)
 {
     u16 len = 0;
     u16 count = 0;
@@ -772,12 +774,9 @@ void get_dht(jpg_data_p  jpg_data)
             ERRDEBUG("Bogus DHT index");
             exit(1);
         }
-
-        
         dht_info->flag = TRUE;
         memcpy(dht_info->bits, bits, sizeof(bits));
         memcpy(dht_info->huffval, huffval, sizeof(huffval));
-
     }
     if (len != 0)
     {

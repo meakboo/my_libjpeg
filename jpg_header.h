@@ -55,6 +55,8 @@
 #define HEADER_ERR                      0x00
 #define HEADER_START                    0x01
 #define HEADER_FIND_SOI                 0x02
+#define DECODE_FAILED					0x03
+#define DECODE_SUCCSE					0x04
 
 //APP0有用字段长度
 #define APP0_DATA_LEN                   14
